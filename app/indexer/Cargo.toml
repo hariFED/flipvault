@@ -1,0 +1,20 @@
+[package]
+name = "flipvault-indexer"
+version = "0.1.0"
+edition = "2021"
+description = "Snapshot-based indexer for FlipVault: decodes Config+Vaults, records rounds/flips/snapshots, serves an Axum API."
+
+[dependencies]
+flipvault-sdk = { path = "../crates/flipvault-sdk" }
+solana-pubkey = { workspace = true }
+base64 = "0.22"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

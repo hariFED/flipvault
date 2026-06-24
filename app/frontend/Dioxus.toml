@@ -1,0 +1,8 @@
+[application]
+name = "flipvault-frontend"
+
+[web.app]
+title = "FlipVault"
+
+[web.watcher]
+reload_html = true

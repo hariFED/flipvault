@@ -1,0 +1,48 @@
+name: flipvault
+
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        RUST_VERSION: ${RUST_VERSION:-1.92.0}
+        SOLANA_VERSION: ${SOLANA_VERSION:-stable}
+        ANCHOR_VERSION: ${ANCHOR_VERSION:-0.31.1}
+        NODE_MAJOR: ${NODE_MAJOR:-22}
+    image: flipvault-dev:latest
+    # Agave's solana-test-validator uses io_uring, which Docker's default seccomp profile
+    # blocks (causing an io_uring_supported() panic). Unconfine seccomp for local dev.
+    security_opt:
+      - seccomp:unconfined
+    working_dir: /workspace/flipvault
+    volumes:
+      # Source code (and build artifacts/program keypair) live on the Windows host.
+      - .:/workspace
+      # Dependency caches in named volumes -> fast, off the Windows bind mount.
+      # (target/ stays on the host so the program keypair persists and artifacts are visible.)
+      - cargo-registry:/root/.cargo/registry
+      - cargo-git:/root/.cargo/git
+      - solana-config:/root/.config/solana
+    ports:
+      - "8899:8899"   # solana-test-validator RPC
+      - "8900:8900"   # solana-test-validator pubsub (websocket)
+    tty: true
+    stdin_open: true
+    command: sleep infinity
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: flip
+      POSTGRES_PASSWORD: flip
+      POSTGRES_DB: flipvault
+    # No host port — the dev container reaches it as "postgres:5432" over the compose network.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  cargo-registry:
+  cargo-git:
+  solana-config:
+  pgdata:

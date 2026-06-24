@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = ["crates/flipvault-sdk", "keeper", "indexer"]
+
+# The frontend (wasm) member is added when dx is ready.
+
+[workspace.dependencies]
+# One solana-* lane across the whole app — the JamiiDao wallet-adapter template lane, so
+# Pubkey/Instruction types unify with the frontend's wallet + tx stack (proven to compile).
+solana-pubkey = { version = "4.1", default-features = false, features = ["borsh", "curve25519"] }
+solana-instruction = { version = "3.1", default-features = false, features = ["borsh", "std"] }
+borsh = { version = "1", features = ["derive"] }

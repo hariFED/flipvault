@@ -1,0 +1,17 @@
+# Standalone workspace so the wasm-only deps (wallet-adapter/web-sys) don't enter the
+# native keeper/indexer dependency resolution. flipvault-sdk is shared via path.
+[workspace]
+
+[package]
+name = "flipvault-frontend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dioxus = { version = "0.7.1", features = ["web"] }
+wallet-adapter = "1.4.2"
+flipvault-sdk = { path = "../crates/flipvault-sdk" }
+solana-transaction = { version = "4", features = ["serde"] }
+solana-hash = "4"
+bincode = "=1.3.3"
+serde_json = "1"
