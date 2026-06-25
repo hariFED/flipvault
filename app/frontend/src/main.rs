@@ -21,6 +21,7 @@ static WALLET: GlobalSignal<WalletAdapter> = Signal::global(|| WalletAdapter::in
 static USER: GlobalSignal<Option<[u8; 32]>> = Signal::global(|| None);
 static STATUS: GlobalSignal<String> = Signal::global(String::new);
 static CHAIN: GlobalSignal<ChainState> = Signal::global(ChainState::default);
+static NOW: GlobalSignal<i64> = Signal::global(|| (js_sys::Date::now() / 1000.0) as i64);
 
 // ---------- views (Clone+PartialEq so they live in signals) ----------
 #[derive(Clone, PartialEq, Default)]
@@ -221,6 +222,13 @@ fn App() -> Element {
             gloo_timers::future::TimeoutFuture::new(5000).await;
         }
     });
+    // Tick the clock every 1s so the countdown is smooth.
+    use_future(|| async move {
+        loop {
+            *NOW.write() = (js_sys::Date::now() / 1000.0) as i64;
+            gloo_timers::future::TimeoutFuture::new(1000).await;
+        }
+    });
 
     rsx! {
         style { {CSS} }
@@ -269,7 +277,7 @@ fn ConnectButton() -> Element {
 #[component]
 fn StatsBar() -> Element {
     let st = CHAIN.read();
-    let now = (js_sys::Date::now() / 1000.0) as i64;
+    let now = *NOW.read();
     let secs_left = if st.loaded { (st.last_settled_ts + st.round_secs - now).max(0) } else { 0 };
     let timer = if !st.loaded {
         "—".to_string()

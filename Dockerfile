@@ -41,5 +41,10 @@ ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 RUN cargo install --git https://github.com/coral-xyz/anchor --tag v${ANCHOR_VERSION} anchor-cli --force \
     && anchor --version
 
+# Frontend toolchain: wasm target + Dioxus CLI. Compiled from source because the prebuilt
+# dx binary requires a newer glibc than Ubuntu 22.04 ships (slow, one-time).
+RUN rustup target add wasm32-unknown-unknown \
+    && cargo install dioxus-cli --version ^0.7 --locked
+
 WORKDIR /workspace
 CMD ["sleep", "infinity"]
