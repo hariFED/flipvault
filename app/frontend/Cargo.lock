@@ -1296,6 +1296,8 @@ dependencies = [
  "bincode",
  "dioxus",
  "flipvault-sdk",
+ "gloo-timers",
+ "js-sys",
  "serde_json",
  "solana-hash",
  "solana-transaction",
