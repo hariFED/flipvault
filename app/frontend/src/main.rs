@@ -1,13 +1,14 @@
 //! FlipVault M0 spike: connect a Solana wallet (wallet-adapter, Wallet Standard) and send a
 //! real `deposit` to the live devnet program, with the instruction built by flipvault-sdk.
 //! Proves the whole Rust/WASM wallet+tx path end-to-end.
+use base64::Engine;
 use dioxus::prelude::*;
 use flipvault_sdk::Pubkey;
 use solana_transaction::Transaction;
 use std::str::FromStr;
 use wallet_adapter::wasm_bindgen_futures::JsFuture;
 use wallet_adapter::web_sys::{wasm_bindgen::JsCast, window, Headers, Request, RequestInit, Response};
-use wallet_adapter::{Cluster, SendOptions, WalletAdapter};
+use wallet_adapter::{Cluster, WalletAdapter};
 
 const RPC: &str = "https://api.devnet.solana.com";
 
@@ -58,18 +59,40 @@ async fn get_blockhash() -> Result<solana_hash::Hash, String> {
     solana_hash::Hash::from_str(bh).map_err(|e| e.to_string())
 }
 
+/// Send fully-signed transaction bytes to devnet via our own RPC (decoupled from the
+/// wallet's selected network). Surfaces the real RPC error.
+async fn send_tx(signed: &[u8]) -> Result<String, String> {
+    let b64 = base64::engine::general_purpose::STANDARD.encode(signed);
+    let body = serde_json::json!({
+        "jsonrpc":"2.0","id":1,"method":"sendTransaction",
+        "params":[b64, {"encoding":"base64","preflightCommitment":"confirmed"}]
+    })
+    .to_string();
+    let text = rpc_post(body).await?;
+    let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    if let Some(err) = v.get("error") {
+        return Err(format!("rpc send: {err}"));
+    }
+    v["result"]
+        .as_str()
+        .map(String::from)
+        .ok_or_else(|| "no signature in response".into())
+}
+
 async fn do_deposit(user: [u8; 32], vault_id: u8, slot: u8, amount: u64) -> Result<String, String> {
     let user_pk = Pubkey::new_from_array(user);
     let ix = flipvault_sdk::ix::deposit(&user_pk, vault_id, slot, amount);
     let mut tx = Transaction::new_with_payer(&[ix], Some(&user_pk));
     tx.message.recent_blockhash = get_blockhash().await?;
-    let bytes = bincode::serialize(&tx).map_err(|e| e.to_string())?;
-    let sig = WALLET
+    let bytes = bincode::serialize(&tx).map_err(|e| format!("serialize: {e}"))?;
+    // Wallet only SIGNS; we broadcast to devnet ourselves.
+    let signed = WALLET
         .read()
-        .sign_and_send_transaction(&bytes, Cluster::DevNet, SendOptions::default())
+        .sign_transaction(&bytes, Some(Cluster::DevNet))
         .await
-        .map_err(|e| e.to_string())?;
-    Ok(sig.to_string())
+        .map_err(|e| format!("sign: {e:?}"))?;
+    let first = signed.into_iter().next().ok_or("wallet returned no signed tx")?;
+    send_tx(&first).await
 }
 
 #[component]
@@ -95,7 +118,10 @@ fn ConnectButton() -> Element {
         button {
             onclick: move |_| {
                 spawn(async move {
-                    match WALLET.write().connect_by_name("Phantom").await {
+                    // Bind to a let so the WALLET write guard is released before we read it below
+                    // (otherwise the match scrutinee temporary holds the borrow through the arms).
+                    let connected = WALLET.write().connect_by_name("Phantom").await;
+                    match connected {
                         Ok(_) => {
                             let adapter = WALLET.read();
                             let info = adapter.connection_info().await;

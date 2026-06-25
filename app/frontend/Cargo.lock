@@ -1292,6 +1292,7 @@ checksum = "059c31d7d36c43fe39d89e55711858b4da8be7eb6dabac23c7289b1a19489406"
 name = "flipvault-frontend"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "bincode",
  "dioxus",
  "flipvault-sdk",
