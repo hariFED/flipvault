@@ -1,0 +1,8 @@
+[package]
+name = "encrypted-ixs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Pinned to the published 0.11.1 (the 0.11.2 CLI is ahead of crates.io; 0.11.1 is the matching set).
+arcis = "=0.11.1"

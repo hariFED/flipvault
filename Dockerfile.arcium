@@ -1,0 +1,84 @@
+# FlipVault Path-B (Private Perpetual) dev toolchain — Arcium MPC + its pinned Solana/Anchor.
+#
+# DELIBERATELY SEPARATE from the path-A Dockerfile: Arcium 0.11.1 pins Solana CLI 3.1.10
+# and Anchor 1.0.2, which clash with path-A's Agave 4.0.2 / Anchor 0.31.1 (the deployed
+# FlipVault program needs those). Two programs, two toolchains, two images.
+#
+# `arcium localnet` spins up an MPC node cluster via Docker Compose, so this image carries
+# the docker CLI and the compose service mounts the host docker socket (Docker-out-of-Docker).
+# For running real computations we can also target Arcium devnet (cluster offset 456), which
+# needs only a funded keypair + RPC — no local MPC nodes.
+FROM ubuntu:22.04
+
+ARG RUST_VERSION=1.92.0
+ARG SOLANA_VERSION=v3.1.10        # Arcium 0.11.1 pins Solana CLI 3.1.10
+ARG ANCHOR_VERSION=1.0.2          # Arcium 0.11.1 pins Anchor 1.0.2
+ARG ARCUP_VERSION=0.11.1
+ARG NODE_MAJOR=22
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CARGO_HOME=/root/.cargo
+ENV RUSTUP_HOME=/root/.rustup
+ENV PATH=/root/.cargo/bin:/root/.local/share/solana/install/active_release/bin:/usr/local/bin:$PATH
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+
+# System deps (same base set Arcium's docs list for Ubuntu) + docker CLI for `arcium localnet`.
+# NOTE: docker-compose-plugin is NOT in Ubuntu's repos (it's in Docker's own apt repo); we
+# install the compose v2 plugin as a static binary below instead.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential pkg-config libssl-dev libudev-dev zlib1g-dev \
+      llvm clang cmake libclang-dev protobuf-compiler \
+      curl ca-certificates git bzip2 xz-utils \
+      docker.io \
+    && rm -rf /var/lib/apt/lists/*
+
+# Docker Compose v2 as a CLI plugin (static binary — avoids needing Docker's apt repo).
+# Only used if we run `arcium localnet`; devnet (offset 456) needs neither docker nor compose.
+RUN mkdir -p /usr/local/lib/docker/cli-plugins \
+    && curl -fsSL https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-x86_64 \
+         -o /usr/local/lib/docker/cli-plugins/docker-compose \
+    && chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+# Node + yarn (Arcium tests + @arcium-hq/client TS SDK).
+RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && corepack enable \
+    && rm -rf /var/lib/apt/lists/*
+
+# Rust (host-side).
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --default-toolchain ${RUST_VERSION} --profile minimal -c rustfmt -c clippy \
+    && rustup target add wasm32-unknown-unknown
+
+# Solana CLI (Arcium-pinned version).
+RUN sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)" \
+    && solana --version
+
+# Anchor (Arcium-pinned version), built from source — avm's prebuilt download is flaky in-container.
+RUN cargo install --git https://github.com/coral-xyz/anchor --tag v${ANCHOR_VERSION} anchor-cli --force \
+    && anchor --version
+
+# Stage the arcup binary (manages Arx-node images for `arcium localnet` later).
+RUN curl -fsSL "https://bin.arcium.com/download/arcup_x86_64_linux_${ARCUP_VERSION}" \
+      -o /root/.cargo/bin/arcup \
+    && chmod +x /root/.cargo/bin/arcup \
+    && test -x /root/.cargo/bin/arcup
+
+# Bake the arcium CLI at BUILD time with a PATIENT, resumable download. `arcup install`'s own
+# HTTP downloader uses a short timeout that fails on slow links to bin.arcium.com (observed:
+# "operation timed out" 3x); curl with --retry + resume (-C -) completes even a flaky/large
+# transfer because partial bytes carry across retries. arcup install ALSO needs the Docker daemon
+# (unavailable during `docker build`) — fetching the CLI directly sidesteps both problems. The
+# Arx-node localnet images (NOT needed for devnet, only for `arcium localnet`) are pulled on demand.
+ARG ARCIUM_CLI_VERSION=0.11.2
+RUN for n in 1 2 3 4 5 6 7 8; do \
+      curl -fL --retry 10 --retry-delay 5 --retry-all-errors --connect-timeout 30 -C - \
+        "https://bin.arcium.com/download/arcium_x86_64_linux_${ARCIUM_CLI_VERSION}" \
+        -o /root/.cargo/bin/arcium && break; \
+      echo "arcium CLI download batch $n incomplete; resuming"; sleep 5; \
+    done \
+    && chmod +x /root/.cargo/bin/arcium \
+    && arcium --version
+
+WORKDIR /workspace
+CMD ["sleep", "infinity"]

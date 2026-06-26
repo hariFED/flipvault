@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/flipvault-sdk", "keeper", "indexer"]
+members = ["crates/flipvault-sdk", "crates/flipvault-pathb-sdk", "keeper", "indexer"]
 
 # The frontend (wasm) member is added when dx is ready.
 

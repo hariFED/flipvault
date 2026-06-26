@@ -1,0 +1,11 @@
+[package]
+name = "flipvault-pathb-sdk"
+version = "0.1.0"
+edition = "2021"
+description = "Shared ABI for FlipVault Path-B (Arcium): ids, PDAs, account decoders (wasm + native)."
+
+[dependencies]
+solana-pubkey = { workspace = true }
+solana-instruction = { workspace = true }
+borsh = { workspace = true }
+sha2 = { version = "0.10", default-features = false }

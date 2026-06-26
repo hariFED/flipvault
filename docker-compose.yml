@@ -31,6 +31,40 @@ services:
     stdin_open: true
     command: sleep infinity
 
+  # Path-B (Private Perpetual) — Arcium MPC toolchain. Separate image/toolchain from `dev`
+  # (Arcium pins Solana 3.1.10 / Anchor 1.0.2). The docker socket is mounted so `arcium
+  # localnet` can spin up its MPC node cluster (Docker-out-of-Docker). Profile-gated so a
+  # plain `docker compose up` (path-A) doesn't build this heavy image; start it explicitly
+  # with `docker compose --profile arcium up -d arcium`.
+  arcium:
+    profiles: ["arcium"]
+    build:
+      context: .
+      dockerfile: Dockerfile.arcium
+    image: flipvault-arcium:latest
+    working_dir: /workspace/path-b
+    # solana-test-validator (used by `arcium test`/localnet) needs io_uring, which Docker's
+    # default seccomp profile blocks (io_uring_supported() panic). Unconfine seccomp like the
+    # path-A `dev` service.
+    security_opt:
+      - seccomp:unconfined
+    volumes:
+      - .:/workspace
+      - arcium-cargo-registry:/root/.cargo/registry
+      - arcium-cargo-git:/root/.cargo/git
+      - arcium-solana-config:/root/.config/solana
+      # Persist the SBF platform-tools (~1.6GB, slow to download) across container recreates.
+      - arcium-toolcache:/root/.cache/solana
+      # localnet's RocksDB ledger MUST be on a fast (native) FS, not the Windows bind mount —
+      # RocksDB's many small-file ops are pathologically slow there and the validator never boots.
+      - arcium-anchor:/workspace/path-b/.anchor
+      # Docker-out-of-Docker for `arcium localnet` (the CLI is baked into the image at build time;
+      # localnet's Arx-node images are pulled on demand via this socket).
+      - /var/run/docker.sock:/var/run/docker.sock
+    tty: true
+    stdin_open: true
+    command: sleep infinity
+
   postgres:
     image: postgres:16-alpine
     environment:
@@ -46,3 +80,8 @@ volumes:
   cargo-git:
   solana-config:
   pgdata:
+  arcium-cargo-registry:
+  arcium-cargo-git:
+  arcium-solana-config:
+  arcium-toolcache:
+  arcium-anchor:

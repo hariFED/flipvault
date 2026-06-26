@@ -28,3 +28,7 @@ verdict.json
 **/id.json
 **/devnet.json
 **/*.pem
+
+# Arcium: compiled circuits (large, regenerated) + localnet artifacts (contains node keypairs)
+path-b/build/
+path-b/artifacts/

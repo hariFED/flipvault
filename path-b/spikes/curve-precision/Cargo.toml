@@ -1,0 +1,21 @@
+[package]
+name = "flipvault-pathb-curve-precision"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Path-B Milestone 0a — precision spike.
+# Pure Rust, ZERO dependencies (mirrors the deployed program's curve.rs, which is also dep-free
+# so it can be reasoned about and fuzzed). Runs anywhere there's a Rust toolchain — including the
+# existing path-A `dev` container. No Solana, no Arcium toolchain required to prove precision.
+
+[lib]
+name = "curve_precision"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sweep"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3

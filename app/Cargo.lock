@@ -587,6 +587,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "flipvault-pathb-sdk"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "sha2",
+ "solana-instruction",
+ "solana-pubkey",
+]
+
+[[package]]
 name = "flipvault-sdk"
 version = "0.1.0"
 dependencies = [
