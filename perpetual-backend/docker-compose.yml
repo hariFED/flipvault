@@ -1,0 +1,40 @@
+# Backing services for the perpetual backend: PostgreSQL and Valkey.
+# Run:  docker compose up -d
+# Stop: docker compose down       (add -v to also wipe the data volumes)
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: perpetual-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: perpetual
+    ports:
+      - "5432:5432"          # host:container — connect from your machine at localhost:5432
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d perpetual"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: perpetual-valkey
+    restart: unless-stopped
+    ports:
+      - "6379:6379"          # Valkey speaks the Redis protocol on the same default port
+    command: ["valkey-server", "--save", "60", "1", "--appendonly", "no"]
+    volumes:
+      - valkeydata:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
+  valkeydata:

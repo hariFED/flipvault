@@ -1,0 +1,186 @@
+// ─────────────────────────────────────────────────────────────────────────
+// Prisma schema = the single source of truth for your database shape.
+// Edit THIS file, then run `prisma migrate dev` to write the SQL and generate
+// a fully typed TypeScript client.
+//
+// DOMAIN: a vault backed by a single pump.fun-style bonding-curve AMM.
+//   - Deposits autobuy SOL -> token on the curve.
+//   - "Picks" liquidate a random eligible wallet back to SOL.
+//   - Withdrawable SOL is DERIVED at read time from the curve state — it is
+//     never stored as a per-user column (see src/amm.ts §withdrawable).
+//
+// MONEY MATH: amounts are stored as on-chain integer base units.
+//   - SOL is stored in lamports          (1 SOL  = 1e9 lamports)  -> BigInt
+//   - tokens are stored in base units     (6 decimals, 1 tok = 1e6) -> BigInt
+//   Prices/OHLCV are fractional (lamports-per-token-base-unit) -> Decimal.
+//   NEVER use Float for money.
+// ─────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// In Prisma 7 the connection URL lives in prisma.config.ts, NOT here.
+datasource db {
+  provider = "postgresql"
+}
+
+// ── User ─────────────────────────────────────────────────────────────────
+// One row per participating wallet. `solBalance` is realized/free SOL
+// (sale proceeds + residual) withdrawable 1:1. `tokenBalance` is the curve
+// position. The live full-sell-out withdrawable quote is computed at read
+// time and is NOT persisted here.
+model User {
+  id            String     @id @default(cuid())
+  walletAddress String     @unique // the Privy-generated embedded wallet
+  privyUserId   String?    @unique
+
+  solBalance    BigInt     @default(0) // free/realized SOL, lamports
+  tokenBalance  BigInt     @default(0) // tokens held, base units
+
+  status        UserStatus @default(ACTIVE)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  trades        Trade[]
+  deposits      Deposit[]
+  withdrawals   Withdrawal[]
+
+  @@index([status])
+  @@map("users")
+}
+
+// ── BondingCurveState ──────────────────────────────────────────────────────
+// SINGLETON: there is exactly one active token / one curve. `tokenMint` is the
+// stable key used across cache keys and trades. Constant-product curve with
+// virtual reserves: invariant k = virtualSolReserves * virtualTokenReserves.
+model BondingCurveState {
+  id                   String   @id @default(cuid())
+  tokenMint            String   @unique
+
+  virtualSolReserves   BigInt // lamports
+  virtualTokenReserves BigInt // token base units
+  realSolReserves      BigInt // lamports actually in the curve
+  realTokenReserves    BigInt // tokens left to sell from the curve
+  totalSupply          BigInt // token base units
+
+  feeBps               Int      @default(100) // 100 = 1%
+  lastPrice            Decimal  @default(0) @db.Decimal(40, 18) // lamports per token base unit
+  complete             Boolean  @default(false) // has the curve graduated?
+
+  updatedAt            DateTime @updatedAt
+
+  @@map("bonding_curve_state")
+}
+
+// ── Trade ──────────────────────────────────────────────────────────────────
+// Append-only log of every curve mutation (autobuys, pick liquidations,
+// manual). Stores a reserves snapshot AFTER the trade for OHLCV + auditing.
+model Trade {
+  id              String      @id @default(cuid())
+  walletAddress   String
+  userId          String?
+  tokenMint       String
+
+  side            TradeSide
+  solAmount       BigInt // lamports moved on this leg
+  tokenAmount     BigInt // token base units moved on this leg
+  price           Decimal     @db.Decimal(40, 18) // spot price after the trade
+  feePaid         BigInt // lamports
+
+  curveSolAfter   BigInt // virtualSolReserves snapshot after the trade
+  curveTokenAfter BigInt // virtualTokenReserves snapshot after the trade
+
+  source          TradeSource @default(MANUAL)
+  txSignature     String? // for later on-chain reconciliation
+  createdAt       DateTime    @default(now())
+
+  user            User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tokenMint, createdAt])
+  @@index([walletAddress, createdAt])
+  @@map("trades")
+}
+
+// ── Deposit ─────────────────────────────────────────────────────────────────
+// A SOL deposit. `txSignature` is the idempotency key (unique).
+model Deposit {
+  id            String        @id @default(cuid())
+  walletAddress String
+  userId        String?
+  amountSol     BigInt // lamports
+  txSignature   String        @unique // idempotency key
+  status        DepositStatus @default(CONFIRMED)
+  createdAt     DateTime      @default(now())
+
+  user          User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([walletAddress, createdAt])
+  @@map("deposits")
+}
+
+// ── Withdrawal ──────────────────────────────────────────────────────────────
+// Debits realized `User.solBalance`. On-chain send is stubbed; status tracks it.
+model Withdrawal {
+  id            String           @id @default(cuid())
+  walletAddress String
+  userId        String?
+  amountSol     BigInt // lamports
+  txSignature   String?
+  status        WithdrawalStatus @default(PENDING)
+  createdAt     DateTime         @default(now())
+
+  user          User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([walletAddress, createdAt])
+  @@map("withdrawals")
+}
+
+// ── Candle (OHLCV) ──────────────────────────────────────────────────────────
+// Model exists now; aggregation is scaffolded as comments in src/services/candle.ts.
+model Candle {
+  id          String   @id @default(cuid())
+  tokenMint   String
+  timeframe   String // "1m" | "5m" | "15m" | "1h" | "4h" | "1d"
+  openTime    DateTime // bucket start (floor(tradeTime / interval))
+
+  open        Decimal  @db.Decimal(40, 18)
+  high        Decimal  @db.Decimal(40, 18)
+  low         Decimal  @db.Decimal(40, 18)
+  close       Decimal  @db.Decimal(40, 18)
+  volumeSol   BigInt   @default(0)
+  volumeToken BigInt   @default(0)
+  tradeCount  Int      @default(0)
+
+  @@unique([tokenMint, timeframe, openTime])
+  @@index([tokenMint, timeframe, openTime])
+  @@map("candles")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum TradeSide {
+  BUY
+  SELL
+}
+
+enum TradeSource {
+  DEPOSIT_AUTOBUY
+  PICK_LIQUIDATION
+  MANUAL
+}
+
+enum DepositStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+}
+
+enum WithdrawalStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+}
